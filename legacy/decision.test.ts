@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {shouldReply} from '../src/decision.js';
+import type {Incoming} from '../src/schema.js';
+const base:Incoming={id:'m1',conversationId:'c1',kind:'group',senderId:'u1',text:'hi',mentionedBot:false,replyToBot:false,isSelf:false,timestamp:Date.now(),source:'test'};
+test('self message ignored',()=>assert.equal(shouldReply({...base,isSelf:true},0).reply,false));
+test('private message replied',()=>assert.equal(shouldReply({...base,kind:'private'},0).reply,true));
+test('mention replied',()=>assert.equal(shouldReply({...base,mentionedBot:true},0).reply,true));
+test('ambient cooldown',()=>assert.equal(shouldReply(base,Date.now(),0).reply,false));
+test('ambient silence',()=>assert.equal(shouldReply(base,0,0.999).reply,false));
