@@ -1,67 +1,48 @@
-# FishBot 开发记录
+# FishBot 开发说明
 
-版本：0.2.0；日期：2026-10-31。继续原项目，未重新初始化。legacy/ 原始实现保留；它不参与当前编译和测试。
+## 工程与验证
 
-## 各阶段实际状态
+Node.js/TypeScript ESM，Node内置SQLite，依赖由package-lock.json锁定。基线见[兼容性](docs/compatibility.md)。
 
-| 阶段 | 代码与流程 | 验证边界 |
-| --- | --- | --- |
-| 二 AI聊天 | DeepSeek真实HTTP客户端、模型参数、独立人格配置、私聊上下文、消息合并、超时退避重试、用量统计、发送队列 | 编译与本地HTTP测试通过；官方付费API和Mock发送端到端已通过 |
-| 三 群聊 | 多成员上下文、结构化参与决策、@/引用优先、每群活跃度、冷却限频、持久化话题状态、版本检查取消旧回复、重复文本抑制 | 参与决策及多人Mock流程通过；真人群自然度待实测 |
-| 四 记忆素材 | 短期历史、滚动摘要、人物记忆、来源/时间、私群隔离、自动提取校验、更新删除清理、表情目录/情绪/选择/降级 | 记忆隔离、提取来源、删除阻止重建、素材路径与冷却通过；没有真实大肥鱼素材 |
-| 五 微信 | 4.2.0.12只读DB入站、精确指纹原生文本发送、可注入Adapter、备忘录AI自测入口 | 本机备忘录连续两轮端到端通过；好友、普通群、图片、长期重连仍pending |
-| 六 管理部署 | 本地Web管理台、白名单/开关/人格/模型/活跃度/记忆/素材管理、用量错误、生产构建、健康接口、守护重启、登录自启脚本、日志保留、优雅退出 | HTTP路由、鉴权、构建产物和IPC退出通过；Server系统、浏览器视觉和任务安装未实测 |
+```powershell
+npm ci
+npm run typecheck
+npm test
+npm run build
+```
 
-每阶段均运行 TypeScript 编译与当时的测试集，结果日志保存在 data/stage2-tests.log 至 stage6-tests.log；最终完整验证见 data/final-*.log。阶段二曾发现测试代码括号语法错误，已修复。旧版 better-sqlite3 安装失败日志仍保留。
+当前105项测试通过。发布检查实际暂存内容，不发布凭据、聊天、数据库、缓存、profile和第三方二进制。data/保存私有诊断、精确备份，不入Git。
 
-## 最终验证
+## 模块
 
-- npm run typecheck：通过。
-- npm test：25项通过、0失败（包括5项新增原生备忘录保护与装配测试）。
-- npm run build：通过，dist/ 包含运行代码及管理台静态资源。
-- node scripts/smoke-production.mjs：通过真实本地HTTP验证健康、管理页面、鉴权及IPC优雅退出，无真实模型响应伪装。
-- Node脚本语法及PowerShell部署脚本解析：通过。
-- 只读微信环境探测：实际版本4.2.0.12；未使用computer-use或操作账号。
+| 路径 | 职责 |
+| --- | --- |
+| src/core | 装配、交付、生命周期 |
+| src/adapters/mock | 模拟收发 |
+| src/adapters/wechat/database | 只读快照、临时解密、消息/引用/缓存及下载协调 |
+| src/adapters/wechat/native | IPC、恢复、原生Adapter、回执 |
+| src/ai / src/group / src/conversation | 模型、群参与、会话合并/取消 |
+| src/memory / src/storage | 隔离记忆、SQLite事务/迁移 |
+| src/images | 意图、等待提示、图片客户端、格式和限流 |
+| src/admin / src/monitoring | 管理、日志、健康和用量 |
+| native | 精确版本隔离的原生代码 |
 
-DeepSeek接口依据 https://api-docs.deepseek.com/api/create-chat-completion/ 与 https://api-docs.deepseek.com/guides/json_mode/ 实现 JSON 输出及响应验证。默认模型 deepseek-flash、thinking disabled，模型可在后台更改。真实探针 scripts/probe-deepseek.mjs 需要本机配置密钥后执行，会产生少量API费用，随后已执行，结果见下方真实API验证记录。
+legacy不是运行入口，内部偏移不得进入模型或会话核心。
 
-## 模块边界
+## 原生运行
 
-入口只解析环境和装配。core/application.ts 负责服务装配与入站路由；admin/routes.ts 管理接口；conversation/engine.ts 管理会话队列与结果有效性；ai/client.ts 管理HTTP与限流；group/participation.ts 决策与群状态；memory/ 与 expressions/ 独立管理；storage/ 负责迁移和发送记录；monitoring/ 管理脱敏诊断与用量。
+scripts/run-cloud-all.mjs由supervisor选择，使用唯一host。runner按C:/wx部署布局编写，迁移检查Python、FFmpeg、runtime及私有profile路径，构建不等于接入验收。
 
-配置在 SQLite settings 单例中持久化，通过Zod验证并热更新；密钥仅环境变量。数据库当前 schema=3；旧v1/v2增量字段迁移可重复执行、保留记录，高版本数据库拒绝启动。发送状态不明保留unknown供人工核对，未提供一键重放，避免重复发送。
+native/research/probe-cloud-native.py也是生产host。runtime需连同context-registry.js、memo-agent.js、windowless-agent.js、cached-image-reader.js、quoted-image-task.js、quoted-image-download.js及指纹文件部署。账号profile、PID/线程及目标须在本机核验，不随源码分发。
 
-## 剩余限制
+实验对象通过私有环境变量FISHBOT_TEST_FRIEND_ID、FISHBOT_TEST_GROUP_ID、FISHBOT_TEST_GROUP_2_ID配置。未设置拒绝对应好友/群探针；文件传输助手范围保持。Python从父进程继承变量或由本机shell设置。这些变量不影响生产全量会话目录。
 
-1. 真实微信仅备忘录实验文本闭环通过。当前需要一次预热、会话对象5分钟租期，通用好友/群聊/图片/重启恢复尚未验证。普通入口仍是Mock，不能作为通用无人值守后端发布。
-2. 已用真实DeepSeek API完成私聊、两阶段群聊及Mock发送实测；长期自然度和真实模型记忆抽取质量尚未充分验证。
-3. 敏感过滤是启发式，非完美识别器；记忆抽取仍需管理员审阅。摘要在完成回复且入站计数为10倍数时更新，不是每条消息调用。
-4. SQLite小事务同步执行，Node22内置SQLite有实验提示；未做大规模性能与长期浸泡测试。单实例运行，不支持多进程共享同一数据库。启动时恢复话题有效期内未处理的最新入站；已进入outbox的任务可恢复。过期入站仅保留历史，不追补回复。
-5. 表情目录默认空，只有管理能力与降级逻辑，没有生成或冒用真实素材。图片和文字可能部分送达；独立状态可供核对。
-6. Windows登录启动和进程恢复脚本已实现、语法通过，但未注册系统任务，未在Server2019/2022实机验收。网页登录仅作HTTP验证，未作浏览器视觉或无障碍验收。
+## 图片契约
 
+明确请求、去重/限流后确认等待sent。核验原会话/消息/作者/type3/MD5，缓存优先，缺失只下载这一张。原图优先，其次普通清晰图，拒绝缩略图；单并发、期限、同引用60秒去重，完成后重新查索引并核验。失败不付费，暂停/新上下文使旧结果失效。
 
+群引用fromusr为当前群时取chatusr，但仍比对原消息作者。严格管理线程和共享所有权，不重放捕获指针、不猜版本偏移。旧高层Hook和RPC直接查询保持隔离，历史见docs/image-download-research.md。
 
-## 真实API验证补充（2026-10-31）
-密钥仅写入被忽略的本机 .env，未写入日志或报告。官方 deepseek-flash 单轮探针通过（43 Token）；真实模型私聊及群聊决策/回复经发送队列到达MockAdapter，3次调用共1204 Token。合计1247 Token，全部为服务商返回的用量。报告 data/live-conversation-report.json，仅含合成测试会话。没有执行真实微信发送。
+源码测试、原生调用、数据库回执和远端效果确认分开报告。真人文字收发、已缓存照片编辑、缺缓存原图下载已有不同证据；新版意图的真实付费回图、中途取消、重启和长稳仍待专项验收。
 
-
-2026-10-31补充：真实微信数据库只读接收路线已有密钥、完整性及会话目录实测，新增Worker与后台监听测试，20项测试通过。仍未验证新消息实际到达、真实@/引用和发送闭环，不能把Mock聊天结论迁移到真实微信。
-
-真实微信补充：2026-10-31手机发送文件传输助手测试文字，数据库监听实际接收通过；保留原始消息ID、发送者ID和时间戳，识别为自己发送。没有调用AI或微信发送。完整微信机器人收发仍未验收，参见docs/database-hook-assessment.md。
-
-2026-10-31原生Hook研究补充：经明确授权完成4.2.0.12离线PE分析和两轮临时Frida观察，安装及卸载成功，但未确认主动发送入口。用户手动发出的两条文件传输助手测试消息被数据库收到，不属于FishBot自动发送。原生发送器仍未实现。详细证据见native/research/README.md及被忽略的data/research/native/summary.json。
-
-2026-10-31备忘录补充：经用户新增授权，computer-use仅用于发送两条合成定位消息，均在界面可见；不作为生产自动发送实现。线程轨迹采样记录2659个调用目标，但后续原进程退出原因不明，当前已禁用实验线程跟踪并等待用户手动确认登录。真实自动回复仍未完成。
-
-## 备忘录原生 AI 闭环验收（2026-10-31 18:14）
-
-本节为最新状态；前面的“尚未实现发送”等补充是此前研究过程记录。
-
-- 已验证独立原生文本发送 `FishBot_Native_J1031`，本地DB获得新消息ID；随后实现 `native/memo-agent.js`、`memo-host.py` 和 TypeScript NativeMemoAdapter/NativeMemoBridge，并注入现有队列与AI引擎。
-- 微信保持已登录，使用Computer Use技能输入合成问题；两轮AI中文回复均由原生调用自动发送，两个独立DB观察器确认正文、目标和64位非零消息ID。新消息ID分别为4032390939484000922、3351276470758952969，未以Mock或点击发送冒充。
-- 本次3次真实DeepSeek调用共1337 Token。第一轮发送因Windows管道GBK/UTF-8不一致失败，保留unknown记录，没有自动重发；强制UTF-8后两轮成功。AI错误表为空不表示发送从未失败，发送失败保存在outbox。
-- 独立观察12秒，没有新增自回复循环。此观察不能替代长期浸泡。仅本地微信DB与界面确认，未核对远端手机送达。
-- 25/25自动测试、TypeScript检查、生产构建、生产HTTP/IPC冒烟通过；日志为data/native-memo-{typecheck,tests,build}.log，证据为data/research/native/native-memo-ai-evidence.json。
-- 保护：固定备忘录目标、显式实发标志、独立数据库、前缀自测输入、禁止回复再次作为输入、串行发送、独立新消息回执、unknown不重试、重启不回放旧实验任务、资源关闭/Hook卸载。
-- 未完成：无需预热的稳定会话对象生命周期、其他好友/普通群/@/引用端到端、图片、掉线重连、客户端重启恢复、Server实机和长期稳定性。并未将本次备忘录结果扩展成通用兼容声明。
+旧私人部署笔记备份于被忽略的data/private-release-backup/，公开文档只保留脱敏结论。GitHub整理不更改云端服务、账号或配置。

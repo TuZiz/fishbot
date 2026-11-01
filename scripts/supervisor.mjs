@@ -7,13 +7,14 @@ import {dirname,resolve,join} from 'node:path';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const logs=join(root,'data','logs');mkdirSync(logs,{recursive:true});
 let child,stopping=false,failures=0,restart,healthFailures=0,terminating=false;
-const log=(text)=>{const date=new Date().toISOString().slice(0,10);appendFileSync(join(logs,`${date}.log`),text);};
+const log=(text,error=false)=>{const date=new Date().toISOString().slice(0,10);appendFileSync(join(logs,`${date}.log`),text);(error?process.stderr:process.stdout).write(text);};
 function terminate(){if(!child||terminating)return;terminating=true;child.send({type:'shutdown'});const active=child;const timer=setTimeout(()=>{if(child===active)active.kill();},15000);timer.unref();}
 function launch(){
  if(stopping||existsSync(join(root,'data','STOP')))return;
  terminating=false;const started=Date.now();
- child=spawn(process.execPath,['dist/index.js'],{cwd:root,stdio:['ignore','pipe','pipe','ipc'],windowsHide:true});
- for(const stream of [child.stdout,child.stderr])stream.on('data',chunk=>log(chunk));
+ child=spawn(process.execPath,[process.env.FISHBOT_CLOUD_ALL==='true'?'scripts/run-cloud-all.mjs':'dist/index.js'],{cwd:root,stdio:['ignore','pipe','pipe','ipc'],windowsHide:true});
+ child.stdout.on('data',chunk=>log(chunk));
+ child.stderr.on('data',chunk=>log(chunk,true));
  child.on('error',()=>log('supervisor: child spawn failed\n'));
  child.on('exit',code=>{child=undefined;healthFailures=0;if(stopping)return;failures=Date.now()-started>60000?0:failures+1;const wait=Math.min(60000,1000*2**Math.min(failures,6));log(`supervisor: exit=${code}, restart in ${wait}ms\n`);restart=setTimeout(launch,wait);});
 }

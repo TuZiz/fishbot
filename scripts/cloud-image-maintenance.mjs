@@ -1,0 +1,12 @@
+import 'dotenv/config';
+import {writeFile,access} from 'node:fs/promises';
+const token=process.env.INGEST_TOKEN,base='http://127.0.0.1:8765';
+const request=async(path,body)=>{const response=await fetch(base+path,{method:body?'POST':'GET',headers:{'x-fishbot-token':token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(!response.ok)throw Error('Maintenance API rejected');return response.json();};
+if(await access('data/STOP').then(()=>true,()=>false))throw Error('Existing STOP marker; do not take ownership');
+await request('/control',{paused:true});
+const status=await request('/api/status');
+if(status.outbox.some(j=>(j.status==='pending'||j.status==='sending')&&Number(j.count)>0))throw Error('Recent queue not idle; keep paused for review');
+const health=await request('/health');if(health.adapter?.context?.busy)throw Error('Native bridge busy; keep paused');
+await writeFile('data/STOP','image-maintenance\n',{flag:'wx'});
+await request('/api/native/shutdown',{});
+console.log(JSON.stringify({shutdownRequested:true,paused:true,stopMarkerOwned:true}));

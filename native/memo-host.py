@@ -33,21 +33,30 @@ def main():
     if discovered.get('status') != 'found':
         raise RuntimeError('ClientUnavailable')
     meta = discovered['client']
-    target = json.loads((root / 'data/research/native/test-target.json').read_text(encoding='utf-8-sig'))['conversationId']
-    if meta['version'] != '4.2.0.12' or not target or target.endswith('@chatroom'):
+    targets = json.loads((root / 'data/wechat/native-targets.json').read_text(encoding='utf-8-sig'))
+    if not isinstance(targets, list) or not 1 <= len(targets) <= 5 or any(not isinstance(t.get('id'), str) or not t['id'] for t in targets):
+        raise RuntimeError('Invalid explicit native targets')
+    allowed = {t['id'] for t in targets}
+    if meta['version'] != '4.2.0.12':
         raise RuntimeError('Unsupported client or test target')
     with open(meta['module'], 'rb') as source:
         if hashlib.file_digest(source, 'sha256').hexdigest() != EXPECTED:
             raise RuntimeError('Unsupported module fingerprint')
     (root / 'data/research/native/process-metadata.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
     pe = pefile.PE(meta['module'], fast_load=True)
-    sites = [0x27f80, 0x1adc0, 0x3ec5f70, 0x1c48c00, 0x3e863e0, 0x76ae350]
-    config = {'target': target, 'targetBytes': list(target.encode()), 'warmupBytes': list('FishBot_CONNECT_1031'.encode()), 'ttlMs': 300000,
+    sites = [0x27f80, 0x1adc0, 0x3ec5f70, 0x1c48c00, 0x3e863e0, 0x76ae350, 0x3e86300, 0x3e8edb0]
+    config = {'targets': [{'id': t, 'bytes': list(t.encode())} for t in allowed], 'windowHandle': meta['windowHandle'],
               'sites': [{'rva': rva, 'prologue': pe.get_data(rva, 16).hex()} for rva in sites]}
     session = frida.attach(meta['pid'])
+    intentional_detach = False
+    def on_detached(reason, crash):
+        if not intentional_detach:
+            emit({'event': 'agent-error', 'reason': 'ClientDetached'})
+    session.on('detached', on_detached)
     script = None
     try:
-        script = session.create_script((root / 'native/memo-agent.js').read_text().replace('CONFIG', json.dumps(config), 1))
+        source = (root / 'native/context-registry.js').read_text() + '\n' + (root / 'native/memo-agent.js').read_text()
+        script = session.create_script(source.replace('CONFIG', json.dumps(config), 1))
         def on_message(message, data):
             if message['type'] == 'send':
                 if message['payload'].get('event') == 'lifetime-evidence':
@@ -59,7 +68,7 @@ def main():
                 emit({'event': 'agent-error'})
         script.on('message', on_message)
         script.load()
-        emit({'event': 'ready', 'experimental': True, 'backend': 'native-memo', 'warmupRequired': True})
+        emit({'event': 'ready', 'experimental': True, 'backend': 'native-memo', 'warmupRequired': False})
         for line in sys.stdin:
             request_id = None
             try:
@@ -71,22 +80,23 @@ def main():
                     result = script.exports_sync.status()
                 elif request['op'] == 'send':
                     text = request['text']
-                    if request.get('target') != target or not isinstance(text, str) or not text.strip() or len(text) > 5000:
+                    if request.get('target') not in allowed or not isinstance(text, str) or not text.strip() or len(text) > 5000:
                         result = {'attempted': False, 'error': 'Invalid test target or text'}
                     else:
-                        result = script.exports_sync.sendtext({'target': target, 'text': text, 'bytes': list(text.encode())})
+                        result = script.exports_sync.sendtext({'target': request['target'], 'text': text, 'bytes': list(text.encode())})
                 else:
                     result = {'attempted': False, 'error': 'Unknown operation'}
                 emit({'id': request_id, 'result': result})
             except Exception as error:
                 # IPC or process failure after dispatch must be reconciled as unknown by the caller.
                 detail = str(error)
-                for private in (target, locals().get('text', '')):
+                for private in (*allowed, locals().get('text', '')):
                     if private:
                         detail = detail.replace(private, '[redacted]')
                 diagnostic({'event': 'command-error', 'type': type(error).__name__, 'detail': detail[:2000]})
                 emit({'id': request_id, 'error': 'Native command failed; reconcile before retry'})
     finally:
+        intentional_detach = True
         if script:
             try:
                 script.exports_sync.dispose()

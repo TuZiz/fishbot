@@ -20,7 +20,7 @@ const initialIds=replies.map(r=>r.id).sort((a,b)=>a-b);
 await new Promise(r=>setTimeout(r,12000));
 const [later,laterUsage]=await Promise.all([get(base+'/replies'),get(base+'/api/status')]);
 const stable=JSON.stringify(initialIds)===JSON.stringify(later.map(r=>r.id).sort((a,b)=>a-b))&&usage.totals.calls===laterUsage.totals.calls;
-const report={date:new Date().toISOString(),clientVersion:'4.2.0.12',backend:health.adapter.backend,testScope:'self memo only',dryRun:health.dryRun,confirmations,usage:usage.totals,outbox:usage.outbox,errorCount:usage.errors.length,quietWindowSeconds:12,noEchoLoopObserved:stable,remoteDeviceDeliveryVerified:false,friendsVerified:false,groupsVerified:false,imagesVerified:false};
+const report={date:new Date().toISOString(),clientVersion:'4.2.0.12',backend:health.adapter.backend,testScope:'authorized private friend; own-message prefix self-test input only',dryRun:health.dryRun,confirmations,usage:usage.totals,outbox:usage.outbox,errorCount:usage.errors.length,quietWindowSeconds:12,noEchoLoopObserved:stable,remoteDeviceDeliveryVerified:false,friendsVerified:false,groupsVerified:false,imagesVerified:false};
 await writeFile('data/research/native/native-memo-ai-evidence.json',JSON.stringify(report,null,2));
 assert.equal(health.adapter.backend,'native-memo-experimental');assert.equal(health.dryRun,false);
 assert.ok(confirmations.length>=2&&confirmations.every(c=>c.independentDatabaseEcho&&/^[1-9]\d+$/.test(c.messageId)),'Need two independent database-confirmed sends');

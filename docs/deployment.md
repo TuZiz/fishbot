@@ -1,17 +1,37 @@
-# Windows Server 部署
+# Windows 部署
 
-目标系统：Windows Server 2019/2022；本次未在这两种系统实测。当前仅 Mock 接入，不依赖微信桌面。
+先核对[已验证版本](compatibility.md)。当前实际系统是Windows Server 2025；2019/2022仍为未实测目标。推荐Node 22.23.4；真实微信必须4.1.15.56 x64且DLL指纹匹配。
 
-1. 安装 Node.js 22.13+，将项目放入固定目录，执行 npm ci、npm run build、npm test。
-2. 创建 .env，设置本机管理令牌与 DeepSeek 密钥；保持 DRY_RUN=true 先验证。密钥不填写到后台或日志中。
-3. 在项目目录执行 node scripts/supervisor.mjs。它启动编译后的 dist/index.js，崩溃指数退避重启（最高60秒），每15秒健康检查，连续3次失败先 IPC 优雅停止，再等待15秒后终止。
-4. 执行 powershell -File scripts/install-startup.ps1 注册当前用户登录启动任务。只在显式执行脚本时注册，本次未安装系统任务。默认不是开机前无人登录的 Windows 服务。可传入 -NodePath 指定绝对 node.exe 路径。
-5. supervisor 按日保存 stdout/stderr 到 data/logs，保留30天。后台错误和用量另存 SQLite，按运行配置清理。
+## Mock / AI
 
-停止守护：创建 data/STOP 空文件，最多15秒后优雅关闭子进程并停止守护。重新启动前手动移除该文件。卸载自动启动执行 scripts/uninstall-startup.ps1；卸载任务不会自动删除用户数据或立即结束已有进程。
+1. npm ci，复制.env.example为.env，在本机填写随机管理令牌和按需API密钥；默认DRY_RUN=true。
+2. npm run typecheck、npm test、npm run build，npm start启动。
+3. 管理台为127.0.0.1:8765/，健康/health，后台API需要管理令牌。保持管理服务仅本机监听。
+4. Windows守护可运行node scripts/start-server.mjs，或用start-server.ps1传入-NodePath。bat/ps1在项目或上级tools/node/node.exe寻找Node，不默认回退到PATH。
 
-维护时先暂停机器人并停止守护，再备份 .env 和 SQLite 数据。数据库运行期间不能只复制主 sqlite 文件而忽略 WAL。升级前留备份，执行构建与测试后再启动；数据库迁移事务化、可重复执行，并拒绝高于当前支持版本的数据库。不要同时运行多个 FishBot 实例指向同一数据库。
+## 微信只读接收
 
-健康接口 /health 区分 adapter、dryRun、aiConfigured、paused、realWechatVerified。存活不等于模型或微信可用；只有真实回复验证后才能确认外部依赖可用。没有密钥时入站仍可接收，AI 错误记录在后台，不伪造回复。
+设置ADAPTER=wechat-database、WECHAT_STORAGE_PATH、WECHAT_DB_KEY_FILE。此Adapter只接收，发送返回not-sent，不是原生自动回复。只读快照在临时副本解密，不修改微信原DB或登录信息。密钥由授权用户本机提供，不由程序提取。
 
-如果未来接入依赖 UIA 的后端，还需要登录的交互桌面，必须额外验证锁屏、RDP断开与微信重启；本项目当前不承诺 Session 0 服务模式下微信可用。不要修改现有登录信息以适配部署。
+## 已验证的原生入口
+
+scripts/run-cloud-all.mjs依赖既有私有runtime和C:/wx布局，不是一键适配任意账号：
+
+- 项目C:/wx/fishbot，Node在C:/wx/tools/node/node.exe。
+- 原生runtime在C:/wx/tools/fishbot-frida-research-17.25.0，脚本列表见根DEVELOPMENT.md。
+- runner中Python和FFmpeg路径固定，迁移前检查源码中的路径并单独核验。
+- 需要已登录的授权微信、私有cloud-profile.json、当前进程/线程/布局核验和匹配DLL指纹。
+- .env配置数据库目录/密钥路径、API、端口及稳定NATIVE_DB_PATH。
+- 核验后显式设置FISHBOT_CLOUD_ALL=true、FISHBOT_WINDOWLESS=true，按已验能力开启WECHAT_NATIVE_IMAGES。新部署先保持DRY_RUN=true。
+
+supervisor按FISHBOT_CLOUD_ALL选择入口。全量runner按真实会话目录设置全部好友/群，无需白名单，群AI仍判断是否参与。新会话目录、微信重启等边界需独立验收。
+
+GitHub不含二进制、账号profile、密钥或数据库，新克隆不能直接开启真人收发。相同版本号仍需核对DLL指纹；其他版本不自动兼容。
+
+## 维护与恢复
+
+supervisor按日转发/保存日志、保留30天，每15秒检查健康；持续失败尝试IPC优雅停止并退避重启。data/STOP是紧急停止标记，恢复前确认并移除。TERMINAL_MESSAGE_CONTENT=false可隐藏终端正文。
+
+健康ok只证明应用存活；还要看connected、nativeReady、paused、dryRun和quotedDownloadsSupported。DB回执不等于远端已阅读；不重放历史unknown或付费请求。
+
+可显式执行install-startup.ps1注册当前用户登录启动任务，不是Session 0微信服务。锁屏、RDP断开、无人登录、微信重启没有完整验收。维护先暂停和优雅停止，备份.env及含WAL的SQLite完整快照，不能运行中只复制主DB。

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "verifiedOn": "2026-11-01",
+  "projectVersion": "0.2.0",
+  "meaning": "Observed deployment baseline; not a guarantee of other versions or long-term stability",
+  "platform": {
+    "os": "Windows Server 2025 Datacenter Evaluation",
+    "version": "10.0.26100",
+    "build": "26100",
+    "architecture": "x64",
+    "powershell": "5.1.26100.33438"
+  },
+  "wechat": {
+    "version": "4.1.15.56",
+    "architecture": "x64",
+    "weixinDllSha256": "e0428a7b691853de496532523c2c09aa095f90941c37c9f4cfb3f137f3c66556",
+    "backend": "wechat-native-windowless",
+    "requiresMatchingChatWindow": false
+  },
+  "runtime": {
+    "node": "22.23.4",
+    "sqliteBundledWithNode": "3.53.4",
+    "python": "3.13.15",
+    "frida": "17.25.0",
+    "ffmpeg": "7.1-essentials_build-www.gyan.dev"
+  },
+  "npmDependencies": {
+    "dotenv": "17.4.2",
+    "fast-xml-parser": "5.11.2",
+    "fastify": "5.12.7",
+    "zod": "4.6.7",
+    "typescript": "5.9.3",
+    "tsx": "4.23.15"
+  },
+  "packageLockSha256": "8abf720a7bfad8602150a539338c49b5c558b9f9252ed96bc022f50df85cefce",
+  "verification": {
+    "automatedTestsPassed": 105,
+    "typecheck": true,
+    "build": true,
+    "textPrivateAndGroupReceipts": true,
+    "cachedPhotoEditAndImageReceipt": true,
+    "uncachedQuotedPhotoDownloadAndDecode": true,
+    "latestIntentBatchPaidWechatEndToEnd": false,
+    "clientRestartAcceptance": false,
+    "inFlightDownloadCancellationAcceptance": false,
+    "longRunningStabilityAcceptance": false
+  },
+  "notVerifiedAsEquivalent": [
+    "WeChat 4.2.0.12 for this cloud backend",
+    "different Weixin.dll hashes",
+    "Windows Server 2019",
+    "Windows Server 2022",
+    "Session 0 / logged-out desktop"
+  ],
+  "publicationChecks": {
+    "pythonScopeNegativeSmokeCases": 5,
+    "rawCredentialsIncluded": false,
+    "cloudServiceModified": false
+  },
+  "packageLockHashNormalization": "UTF-8 with LF line endings"
+}

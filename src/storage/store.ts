@@ -14,11 +14,11 @@ export class Store {
     // A crash after transport invocation has an ambiguous outcome. Never resend automatically.
     this.db.prepare("UPDATE outbox SET status='unknown' WHERE status='sending'").run();
   }
-  accept(m: Incoming) {
+  accept(m: Incoming,cancelPending=true) {
     this.db.exec('BEGIN');try{
       if(!this.db.prepare('INSERT OR IGNORE INTO seen VALUES(?,?)').run(scopeOf(m),m.id).changes){this.db.exec('COMMIT');return false;}
       this.db.prepare('INSERT INTO messages VALUES(?,?,?)').run(scopeOf(m),m.id,JSON.stringify({...m,text:sensitive(m.text)?'[敏感内容未持久化]':m.text}));
-      this.db.prepare("UPDATE outbox SET status='cancelled' WHERE scope=? AND status='pending'").run(scopeOf(m));
+      if(cancelPending)this.db.prepare("UPDATE outbox SET status='cancelled' WHERE scope=? AND status='pending'").run(scopeOf(m));
       this.db.exec('COMMIT');return true;
     }catch(error){this.db.exec('ROLLBACK');throw error;}
   }

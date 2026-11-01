@@ -3,6 +3,7 @@ export type WechatMessage = Incoming;
 export interface SendResult { status: 'sent' | 'not-sent' | 'unknown'; messageId?: string; reason?: string }
 export interface AdapterStatus { connected: boolean; backend: string; realWechat: boolean }
 export interface WechatAdapter {
+  readonly supportsGeneratedImages?:boolean;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   onMessage(handler: (message: WechatMessage) => void): void;

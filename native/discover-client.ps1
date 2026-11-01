@@ -1,5 +1,6 @@
 # Read process/module metadata only. Never changes login or client state.
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $clients = @()
 $denied = 0
 foreach ($candidate in @(Get-Process -Name Weixin -ErrorAction SilentlyContinue)) {
@@ -12,6 +13,7 @@ foreach ($candidate in @(Get-Process -Name Weixin -ErrorAction SilentlyContinue)
         version = $module.FileVersionInfo.FileVersion
         baseAddress = ('0x{0:x}' -f $module.BaseAddress.ToInt64())
         moduleSize = $module.ModuleMemorySize
+        windowHandle = ('0x{0:x}' -f $candidate.MainWindowHandle.ToInt64())
       }
     }
   } catch { $denied++ }

@@ -25,13 +25,32 @@ export function committedWal(wal:Buffer){
   }
   return frames.slice(0,committed);
 }
+function sqlitePageCount(header:Buffer){
+  if(header.length<PAGE_SIZE||header.subarray(0,16).toString()!=='SQLite format 3\0')throw new Error('Decrypted page one has an invalid SQLite signature');
+  const encodedSize=header.readUInt16BE(16),pageSize=encodedSize===1?65536:encodedSize;
+  if(pageSize!==PAGE_SIZE)throw new Error('Unsupported decrypted SQLite page size');
+  const count=header.readUInt32BE(28);
+  if(count===0)throw new Error('SQLite header does not declare its database page count');
+  return count;
+}
 export async function snapshotDatabase(source:string,destination:string,key:string){
   const before=await stat(source);if(before.size>512*1024*1024||before.size%PAGE_SIZE)throw new Error('Unsupported database size');
   const walBefore=await stat(source+'-wal').catch(()=>null);
   if(walBefore&&walBefore.size>64*1024*1024)throw new Error('WAL exceeds snapshot limit');
   const input=await open(source,'r');const output=await open(destination,'wx');let keys:PageKeys|undefined;
   try{
-    for(let offset=0;offset<before.size;offset+=PAGE_SIZE){const page=Buffer.alloc(PAGE_SIZE);const r=await input.read(page,0,PAGE_SIZE,offset);if(r.bytesRead!==PAGE_SIZE)throw new Error('Database changed during snapshot');keys??=await detectKeys(page,key);await output.write(decryptPage(page,offset/PAGE_SIZE+1,keys),0,PAGE_SIZE,offset);}
+    const first=Buffer.alloc(PAGE_SIZE),firstRead=await input.read(first,0,PAGE_SIZE,0);
+    if(firstRead.bytesRead!==PAGE_SIZE)throw new Error('Database changed during snapshot');
+    keys=await detectKeys(first,key);
+    const logicalPages=sqlitePageCount(decryptPage(first,1,keys)),physicalPages=before.size/PAGE_SIZE;
+    if(logicalPages>physicalPages)throw new Error('SQLite header page count exceeds the database file');
+    for(let pageNumber=1;pageNumber<=physicalPages;pageNumber++){
+      const page=pageNumber===1?first:Buffer.alloc(PAGE_SIZE),offset=(pageNumber-1)*PAGE_SIZE;
+      if(pageNumber!==1){const r=await input.read(page,0,PAGE_SIZE,offset);if(r.bytesRead!==PAGE_SIZE)throw new Error('Database changed during snapshot');}
+      if(pageNumber>logicalPages){if(page.some(byte=>byte!==0))throw new Error('Non-zero data follows the SQLite logical page count');continue;}
+      await output.write(decryptPage(page,pageNumber,keys),0,PAGE_SIZE,offset);
+    }
+    await output.truncate(logicalPages*PAGE_SIZE);
     if(walBefore?.size){const wal=await readFile(source+'-wal');for(const frame of committedWal(wal)){await output.write(decryptPage(frame.data,frame.page,keys!),0,PAGE_SIZE,(frame.page-1)*PAGE_SIZE);if(frame.size)await output.truncate(frame.size*PAGE_SIZE);}}
     const after=await stat(source),walAfter=await stat(source+'-wal').catch(()=>null);
     if(before.size!==after.size||before.mtimeMs!==after.mtimeMs||walBefore?.size!==walAfter?.size||walBefore?.mtimeMs!==walAfter?.mtimeMs)throw new Error('Source changed during snapshot; retry later');

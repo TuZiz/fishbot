@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { incomingSchema, type Incoming } from '../../schema.js';
 import type { WechatAdapter, SendResult } from '../wechat/contract.js';
 export class MockAdapter implements WechatAdapter {
+  readonly supportsGeneratedImages=true;
   private connected = false;
   private handlers = new Set<(message: Incoming) => void>();
   readonly sent: { targetId: string; content: string; kind: 'text' | 'image' }[] = [];

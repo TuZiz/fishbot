@@ -8,3 +8,20 @@ data/
 *.sqlite*
 
 __pycache__/
+.env.*
+!.env.example
+*.log
+*.dmp
+*.key
+*.pem
+*.pfx
+*.p12
+*.dat
+*.db
+*.db-*
+*.zip
+*.7z
+*.exe
+*.dll
+*.whl
+.tools/

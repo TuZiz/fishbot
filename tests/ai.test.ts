@@ -21,6 +21,15 @@ test('private messages merge, preserve history, cancel stale generation, isolate
  e.receive(m);e.receive({...m,id:'2',text:'了吗'});await e.idle();assert.equal(inputs.length,1);assert.equal(a.sent.length,1);assert.match(inputs[0]!,/吃饭/);assert.match(inputs[0]!,/了吗/);
  e.receive({...m,id:'3',conversationId:'b',text:'other'});await e.idle();assert.doesNotMatch(inputs[1]!,/吃饭/);e.receive({...m,id:'4',text:'停止回复'});await e.idle();assert.equal(a.sent.length,2);await e.close();store.close();
 });
+test('all-conversations mode accepts sessions without a whitelist while default mode stays closed',async()=>{
+ const store=new Store(':memory:'),settings=new SettingsRepository(store,{mergeMs:10000,whitelist:[]}),adapter=new MockAdapter();await adapter.connect();
+ const engine=new ConversationEngine(store,settings,{async complete(){return JSON.stringify({text:'ok'});}},new Delivery(store,adapter,true,new Set()),()=>{});
+ const message=incomingSchema.parse({id:'all-1',kind:'private',conversationId:'directory-session',senderId:'friend',text:'测试',timestamp:Date.now()});
+ assert.equal(engine.receive(message),false);
+ settings.save({...settings.get(),allConversations:true});
+ assert.equal(engine.receive({...message,id:'all-2'}),true);
+ await engine.close();store.close();
+});
 test('API timeouts and authorization failures propagate with bounded retry',async()=>{
  let calls=0;
  const server=createServer((_req,res)=>{calls++;res.writeHead(401);res.end();});
